@@ -266,7 +266,7 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
                 0,
                 0,
                 address(this),
-                block.timestamp + 200
+                block.timestamp
             );
         }
 
@@ -408,22 +408,10 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
         IERC20(_path[0]).safeIncreaseAllowance(address(router), _amountIn);
         if (_ignoreErrors) {
             try
-                router.swapExactTokensForTokensSupportingFeeOnTransferTokens(
-                    _amountIn,
-                    0,
-                    _path,
-                    _to,
-                    block.timestamp + 200
-                )
+                router.swapExactTokensForTokensSupportingFeeOnTransferTokens(_amountIn, 0, _path, _to, block.timestamp)
             {} catch {}
         } else {
-            router.swapExactTokensForTokensSupportingFeeOnTransferTokens(
-                _amountIn,
-                0,
-                _path,
-                _to,
-                block.timestamp + 200
-            );
+            router.swapExactTokensForTokensSupportingFeeOnTransferTokens(_amountIn, 0, _path, _to, block.timestamp);
         }
     }
 }
