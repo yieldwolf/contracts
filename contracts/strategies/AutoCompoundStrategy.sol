@@ -202,7 +202,7 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
     /**
      * @notice deposits the contract's balance of stake tokens in the underlying farm
      */
-    function farm() external virtual nonReentrant {
+    function farm() external virtual nonReentrant whenNotPaused {
         _farm();
         emit Farm();
     }
@@ -325,7 +325,7 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
      * @notice converts any token in the contract into earn tokens
      * @dev it uses the predefined path if it exists or defaults to use WNATIVE
      */
-    function tokenToEarn(address _token) public virtual whenNotPaused {
+    function tokenToEarn(address _token) public virtual nonReentrant whenNotPaused {
         uint256 amount = IERC20(_token).balanceOf(address(this));
         if (amount > 0 && _token != address(earnToken) && _token != address(stakeToken)) {
             address[] memory path = swapPath[_token][address(earnToken)];
