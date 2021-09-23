@@ -13,7 +13,6 @@ contract MockCondition is IYieldWolfCondition {
     bool public override isCondition = true;
 
     function check(
-        address _yieldWolf,
         address _strategy,
         address _user,
         uint256 _pid,

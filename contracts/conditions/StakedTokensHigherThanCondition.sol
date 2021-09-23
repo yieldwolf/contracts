@@ -15,7 +15,6 @@ contract StakedTokensHigherThanCondition is IYieldWolfCondition {
     bool public override isCondition = true;
 
     function check(
-        address _yieldWolf,
         address _strategy,
         address _user,
         uint256 _pid,
@@ -24,7 +23,7 @@ contract StakedTokensHigherThanCondition is IYieldWolfCondition {
     ) external view override returns (bool) {
         uint256 maxStakedTokens = _intInputs[0];
         IYieldWolfStrategy strategy = IYieldWolfStrategy(_strategy);
-        uint256 stakedTokens = IYieldWolf(_yieldWolf).stakedTokens(_pid, _user);
+        uint256 stakedTokens = IYieldWolf(msg.sender).stakedTokens(_pid, _user);
         return stakedTokens > maxStakedTokens;
     }
 }

@@ -9,7 +9,6 @@ contract MockAction is IYieldWolfAction {
     bool public callbackCalled = false;
 
     function execute(
-        address _yieldWolf,
         address _strategy,
         address _user,
         uint256 _pid,
@@ -20,7 +19,6 @@ contract MockAction is IYieldWolfAction {
     }
 
     function callback(
-        address yieldWolf,
         address strategy,
         address user,
         uint256 pid,

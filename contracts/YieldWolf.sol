@@ -319,7 +319,6 @@ contract YieldWolf is Ownable, ReentrancyGuard {
         Rule memory rule = userInfo[_pid][_user].rules[_ruleIndex];
         return
             IYieldWolfCondition(rule.condition).check(
-                address(this),
                 address(poolInfo[_pid].strategy),
                 _user,
                 _pid,
@@ -347,7 +346,6 @@ contract YieldWolf is Ownable, ReentrancyGuard {
 
         require(
             IYieldWolfCondition(rule.condition).check(
-                address(this),
                 address(strategy),
                 _user,
                 _pid,
@@ -360,7 +358,6 @@ contract YieldWolf is Ownable, ReentrancyGuard {
         _tryEarn(strategy);
         IYieldWolfAction action = IYieldWolfAction(rule.action);
         (uint256 withdrawAmount, address withdrawTo) = action.execute(
-            address(this),
             address(strategy),
             _user,
             _pid,
@@ -377,7 +374,7 @@ contract YieldWolf is Ownable, ReentrancyGuard {
             uint256 ruleFeeAmount = (withdrawAmount * ruleFee) / 10000;
             _withdrawFrom(_user, withdrawTo, _pid, withdrawAmount, msg.sender, ruleFeeAmount, true);
         }
-        action.callback(address(this), address(strategy), _user, _pid, rule.actionIntInputs, rule.actionAddrInputs);
+        action.callback(address(strategy), _user, _pid, rule.actionIntInputs, rule.actionAddrInputs);
         executeRuleLocked = false;
         emit ExecuteRule(_pid, _user, _ruleIndex);
     }

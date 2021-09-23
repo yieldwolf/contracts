@@ -6,7 +6,6 @@ interface IYieldWolfAction {
     function isAction() external view returns (bool);
 
     function execute(
-        address yieldWolf,
         address strategy,
         address user,
         uint256 pid,
@@ -15,7 +14,6 @@ interface IYieldWolfAction {
     ) external view returns (uint256, address);
 
     function callback(
-        address yieldWolf,
         address strategy,
         address user,
         uint256 pid,
