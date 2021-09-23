@@ -200,7 +200,7 @@ contract YieldWolf is Ownable, ReentrancyGuard {
      * @param _pid the pool id
      * @param _depositAmount amount of tokens to transfer from msg.sender
      */
-    function deposit(uint256 _pid, uint256 _depositAmount) external nonReentrant {
+    function deposit(uint256 _pid, uint256 _depositAmount) external {
         _deposit(_pid, _depositAmount, msg.sender);
     }
 
@@ -214,7 +214,7 @@ contract YieldWolf is Ownable, ReentrancyGuard {
         uint256 _pid,
         uint256 _depositAmount,
         address _to
-    ) external nonReentrant {
+    ) external {
         _deposit(_pid, _depositAmount, _to);
     }
 
@@ -224,7 +224,7 @@ contract YieldWolf is Ownable, ReentrancyGuard {
      * @param _pid the pool id
      * @param _withdrawAmount maximum amount of tokens to transfer to msg.sender
      */
-    function withdraw(uint256 _pid, uint256 _withdrawAmount) external nonReentrant {
+    function withdraw(uint256 _pid, uint256 _withdrawAmount) external {
         _withdrawFrom(msg.sender, msg.sender, _pid, _withdrawAmount, address(0), 0, false);
     }
 
@@ -233,7 +233,7 @@ contract YieldWolf is Ownable, ReentrancyGuard {
      * @dev only for emergencies
      * @param _pid the pool id
      */
-    function emergencyWithdraw(uint256 _pid) external nonReentrant {
+    function emergencyWithdraw(uint256 _pid) external {
         _withdrawFrom(msg.sender, msg.sender, _pid, type(uint256).max, address(0), 0, true);
     }
 
@@ -540,7 +540,7 @@ contract YieldWolf is Ownable, ReentrancyGuard {
         uint256 _pid,
         uint256 _depositAmount,
         address _to
-    ) internal {
+    ) internal nonReentrant {
         require(_depositAmount > 0, 'deposit: MUST_BE_GREATER_THAN_ZERO');
         PoolInfo memory pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_to];
@@ -569,7 +569,7 @@ contract YieldWolf is Ownable, ReentrancyGuard {
         address _bountyHunter,
         uint256 _ruleFeeAmount,
         bool _skipEarn
-    ) internal {
+    ) internal nonReentrant {
         require(_withdrawAmount > 0, '_withdrawFrom: MUST_BE_GREATER_THAN_ZERO');
         UserInfo storage user = userInfo[_pid][_user];
         IYieldWolfStrategy strategy = poolInfo[_pid].strategy;
