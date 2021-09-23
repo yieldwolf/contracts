@@ -341,7 +341,9 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
                     path[2] = address(earnToken);
                 }
             }
-            _safeSwap(amount, path, address(this), true);
+            if (path[0] != address(earnToken) && path[0] != address(stakeToken)) {
+                _safeSwap(amount, path, address(this), true);
+            }
             emit TokenToEarn(_token);
         }
     }
@@ -369,8 +371,8 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
         if (!paused()) {
             _pause();
         }
-        _farmEmergencyWithdraw();
         emergencyWithdrawn = true;
+        _farmEmergencyWithdraw();
         emit EmergencyWithdraw();
     }
 
