@@ -5,6 +5,7 @@ pragma solidity 0.8.4;
 import '../interfaces/IYieldWolfAction.sol';
 
 contract MockAction is IYieldWolfAction {
+    bool public override isAction = true;
     bool public callbackCalled = false;
 
     function execute(

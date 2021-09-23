@@ -10,6 +10,8 @@ import '../interfaces/IYieldWolf.sol';
 import '../interfaces/IYieldWolfStrategy.sol';
 
 contract MockCondition is IYieldWolfCondition {
+    bool public override isCondition = true;
+
     function check(
         address _yieldWolf,
         address _strategy,

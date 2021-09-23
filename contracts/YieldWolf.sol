@@ -2,11 +2,12 @@
 
 pragma solidity 0.8.4;
 
+import '@openzeppelin/contracts/access/Ownable.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
-import '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
-import '@openzeppelin/contracts/access/Ownable.sol';
 import '@openzeppelin/contracts/security/ReentrancyGuard.sol';
+import '@openzeppelin/contracts/utils/Address.sol';
+import '@openzeppelin/contracts/utils/structs/EnumerableSet.sol';
 
 import './interfaces/IYieldWolfStrategy.sol';
 import './interfaces/IYieldWolfCondition.sol';
@@ -84,7 +85,7 @@ contract YieldWolf is Ownable, ReentrancyGuard {
     event SetRuleFee(uint256 ruleFee);
     event SetRuleFeeBountyPct(uint256 ruleFeeBountyPct);
     event SetStrategyRouter(IYieldWolfStrategy strategy, address router);
-    event SetStrategySwapRouter(IYieldWolfStrategy strategy, address swapRouter);
+    event SetStrategySwapRouterEnabled(IYieldWolfStrategy strategy, bool enabled);
     event SetStrategySwapPath(IYieldWolfStrategy _strategy, address _token0, address _token1, address[] _path);
     event SetStrategyExtraEarnTokens(IYieldWolfStrategy _strategy, address[] _extraEarnTokens);
     event SetFeeAddress(address feeAddress);
@@ -92,6 +93,11 @@ contract YieldWolf is Ownable, ReentrancyGuard {
 
     modifier onlyOperator() {
         require(operators[msg.sender], 'onlyOperator: NOT_ALLOWED');
+        _;
+    }
+
+    modifier onlyEndUser() {
+        require(!Address.isContract(msg.sender) && tx.origin == msg.sender);
         _;
     }
 
@@ -167,25 +173,24 @@ contract YieldWolf is Ownable, ReentrancyGuard {
     /**
      * @notice adds a new pool with a given strategy
      * @dev can only be called by an operator
-     * @param _stakeToken address of the token to be staked in the pool
      * @param _strategy address of the strategy
      */
-    function add(IERC20 _stakeToken, IYieldWolfStrategy _strategy) public onlyOperator {
+    function add(IYieldWolfStrategy _strategy) public onlyOperator {
         require(!strategyExists[address(_strategy)], 'add: STRATEGY_ALREADY_EXISTS');
-        poolInfo.push(PoolInfo({stakeToken: _stakeToken, strategy: _strategy}));
+        IERC20 stakeToken = IERC20(_strategy.stakeToken());
+        poolInfo.push(PoolInfo({stakeToken: stakeToken, strategy: _strategy}));
         strategyExists[address(_strategy)] = true;
-        emit Add(_stakeToken, _strategy);
+        emit Add(stakeToken, _strategy);
     }
 
     /**
      * @notice adds multiple new pools
      * @dev helper to add many pools at once
-     * @param _stakeTokens array of token addresses
      * @param _strategies array of strategy addresses
      */
-    function addMany(IERC20[] calldata _stakeTokens, IYieldWolfStrategy[] calldata _strategies) external onlyOperator {
-        for (uint256 i; i < _stakeTokens.length; i++) {
-            add(_stakeTokens[i], _strategies[i]);
+    function addMany(IYieldWolfStrategy[] calldata _strategies) external onlyOperator {
+        for (uint256 i; i < _strategies.length; i++) {
+            add(_strategies[i]);
         }
     }
 
@@ -253,7 +258,11 @@ contract YieldWolf is Ownable, ReentrancyGuard {
         address[] calldata _actionAddrInputs
     ) external {
         UserInfo storage user = userInfo[_pid][msg.sender];
+
         require(user.rules.length <= MAX_USER_RULES_PER_POOL, 'addRule: CAP_EXCEEDED');
+        require(IYieldWolfCondition(_condition).isCondition(), 'addRule: BAD_CONDITION');
+        require(IYieldWolfAction(_action).isAction(), 'addRule: BAD_ACTION');
+
         Rule memory rule;
         rule.condition = _condition;
         rule.conditionIntInputs = _conditionIntInputs;
@@ -272,9 +281,8 @@ contract YieldWolf is Ownable, ReentrancyGuard {
      */
     function removeRule(uint256 _pid, uint256 _ruleIndex) external {
         UserInfo storage user = userInfo[_pid][msg.sender];
-        require(_ruleIndex < user.rules.length, 'removeRule: WRONG_INDEX');
+        require(_ruleIndex < user.rules.length, 'removeRule: BAD_INDEX');
         user.rules[_ruleIndex] = user.rules[user.rules.length - 1];
-        // user.rules.length--;
         user.rules.pop();
         emit RemoveRule(msg.sender, _pid, _ruleIndex);
     }
@@ -330,7 +338,7 @@ contract YieldWolf is Ownable, ReentrancyGuard {
         uint256 _pid,
         address _user,
         uint256 _ruleIndex
-    ) external {
+    ) external onlyEndUser {
         require(!executeRuleLocked, 'executeRule: LOCKED');
         executeRuleLocked = true;
         UserInfo memory user = userInfo[_pid][_user];
@@ -365,10 +373,10 @@ contract YieldWolf is Ownable, ReentrancyGuard {
             withdrawAmount = staked;
         }
 
-        require(withdrawAmount > 0, 'executeRule: WITHDRAW_MUST_BE_GREATER_THAN_ZERO');
-
-        uint256 ruleFeeAmount = (withdrawAmount * ruleFee) / 10000;
-        _withdrawFrom(_user, withdrawTo, _pid, withdrawAmount, msg.sender, ruleFeeAmount, true);
+        if (withdrawAmount > 0) {
+            uint256 ruleFeeAmount = (withdrawAmount * ruleFee) / 10000;
+            _withdrawFrom(_user, withdrawTo, _pid, withdrawAmount, msg.sender, ruleFeeAmount, true);
+        }
         action.callback(address(this), address(strategy), _user, _pid, rule.actionIntInputs, rule.actionAddrInputs);
         executeRuleLocked = false;
         emit ExecuteRule(_pid, _user, _ruleIndex);
@@ -435,7 +443,7 @@ contract YieldWolf is Ownable, ReentrancyGuard {
      * @param _ruleFee new rule fee fee in basis points
      */
     function setRuleFee(uint256 _ruleFee) external onlyOwner {
-        require(_ruleFee <= PERFORMANCE_FEE_CAP, 'setRuleFee: CAP_EXCEEDED');
+        require(_ruleFee <= RULE_EXECUTION_FEE_CAP, 'setRuleFee: CAP_EXCEEDED');
         ruleFee = _ruleFee;
         emit SetRuleFee(_ruleFee);
     }
@@ -455,12 +463,11 @@ contract YieldWolf is Ownable, ReentrancyGuard {
      * @notice updates the swap router used by a given strategy
      * @dev can only be called by the owner
      * @param _strategy address of the strategy
-     * @param _swapRouter address of the new router
+     * @param _enabled whether to enable or disable the swap router
      */
-    function setStrategySwapRouter(IYieldWolfStrategy _strategy, address _swapRouter) external onlyOwner {
-        require(_swapRouter != address(0), 'setStrategySwapRouter: NOT_ALLOWED');
-        _strategy.setSwapRouter(_swapRouter);
-        emit SetStrategySwapRouter(_strategy, _swapRouter);
+    function setStrategySwapRouterEnabled(IYieldWolfStrategy _strategy, bool _enabled) external onlyOwner {
+        _strategy.setSwapRouterEnabled(_enabled);
+        emit SetStrategySwapRouterEnabled(_strategy, _enabled);
     }
 
     /**
@@ -496,6 +503,13 @@ contract YieldWolf is Ownable, ReentrancyGuard {
         external
         onlyOwner
     {
+        require(_extraEarnTokens.length <= 5, 'setStrategyExtraEarnTokens: CAP_EXCEEDED');
+
+        // tokens sanity check
+        for (uint256 i; i < _extraEarnTokens.length; i++) {
+            IERC20(_extraEarnTokens[i]).balanceOf(address(this));
+        }
+
         _strategy.setExtraEarnTokens(_extraEarnTokens);
         emit SetStrategyExtraEarnTokens(_strategy, _extraEarnTokens);
     }

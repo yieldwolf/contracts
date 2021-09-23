@@ -7,12 +7,13 @@ import '../interfaces/IYieldWolf.sol';
 import '../interfaces/IYieldWolfStrategy.sol';
 
 /**
- * @title Native Value Lower Than Condition
- * @notice the condition triggers if the value of an user's share in a pool is lower than
- *         a given value in native currency (e.g. ETH)
+ * @title Staked Tokens Higher Than Condition
+ * @notice the condition triggers if the amount of staked tokens is higher than a given amount
  * @author YieldWolf
  */
-contract NativeValueLowerThanCondition is IYieldWolfCondition {
+contract StakedTokensHigherThanCondition is IYieldWolfCondition {
+    bool public override isCondition = true;
+
     function check(
         address _yieldWolf,
         address _strategy,
@@ -21,11 +22,9 @@ contract NativeValueLowerThanCondition is IYieldWolfCondition {
         uint256[] calldata _intInputs,
         address[] calldata _addrInputs
     ) external view override returns (bool) {
-        uint256 minNativeValue = _intInputs[0];
+        uint256 maxStakedTokens = _intInputs[0];
         IYieldWolfStrategy strategy = IYieldWolfStrategy(_strategy);
         uint256 stakedTokens = IYieldWolf(_yieldWolf).stakedTokens(_pid, _user);
-        uint256 totalNativeValue = strategy.totalValueLockedNative();
-        uint256 userNativeValue = (totalNativeValue * stakedTokens) / strategy.totalStakeTokens();
-        return userNativeValue < minNativeValue;
+        return stakedTokens > maxStakedTokens;
     }
 }

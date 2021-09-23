@@ -3,6 +3,8 @@
 pragma solidity 0.8.4;
 
 interface IYieldWolfStrategy {
+    function stakeToken() external view returns (address);
+
     function sharesTotal() external view returns (uint256);
 
     function earn(address _bountyHunter) external returns (uint256);
@@ -24,9 +26,7 @@ interface IYieldWolfStrategy {
 
     function totalStakeTokens() external view returns (uint256);
 
-    function totalValueLockedNative() external view returns (uint256);
-
-    function setSwapRouter(address _swapRouter) external;
+    function setSwapRouterEnabled(bool _enabled) external;
 
     function setSwapPath(
         address _token0,

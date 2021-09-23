@@ -10,6 +10,8 @@ import '../interfaces/IYieldWolfAction.sol';
  * @author YieldWolf
  */
 contract SimpleWithdrawAction is IYieldWolfAction {
+    bool public override isAction = true;
+
     function execute(
         address _yieldWolf,
         address _strategy,

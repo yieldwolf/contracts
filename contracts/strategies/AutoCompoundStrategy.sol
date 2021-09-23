@@ -26,18 +26,20 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
     address public masterChef; // address of the farm staking contract
     uint256 public pid; // pid of pool in the farm staking contract
     IERC20 public stakeToken; // token staked on the underlying farm
-    IERC20 public token0; // first token of the lp
-    IERC20 public token1; // second token of the lp (or token0 if stake token is a single token)
+    IERC20 public token0; // first token of the lp (or 0 if it's a single token)
+    IERC20 public token1; // second token of the lp (or 0 if it's a single token)
     IERC20 public earnToken; // reward token paid by the underlying farm
     address[] public extraEarnTokens; // some underlying farms can give rewards in multiple tokens
     IUniswapV2Router02 public swapRouter; // router used for swapping tokens
     IUniswapV2Router02 public liquidityRouter; // router used for adding liquidity to the LP token
     address public WNATIVE; // address of the network's native currency (e.g. ETH)
+    bool public swapRouterEnabled = true; // if true it will use swap router for token swaps, otherwise liquidity router
 
     mapping(address => mapping(address => address[])) public swapPath; // paths for swapping 2 given tokens
 
     uint256 public sharesTotal = 0;
     bool public initialized;
+    bool public emergencyWithdrawn;
 
     event Initialize();
     event Farm();
@@ -66,6 +68,7 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
      * @notice initializes the strategy
      * @dev similar to constructor but makes it easier for inheritance and for creating strategies from contracts
      * @param _pid the id of the pool in the farm's staking contract
+     * @param _isLpToken whether the given stake token is a lp or a single token
      * @param _addresses list of addresses
      * @param _earnToToken0Path swap path from earn token to token0
      * @param _earnToToken1Path swap path from earn token to token1
@@ -74,7 +77,8 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
      */
     function initialize(
         uint256 _pid,
-        address[9] calldata _addresses,
+        bool _isLpToken,
+        address[7] calldata _addresses,
         address[] calldata _earnToToken0Path,
         address[] calldata _earnToToken1Path,
         address[] calldata _token0ToEarnPath,
@@ -84,18 +88,23 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
         initialized = true;
         yieldWolf = IYieldWolf(_addresses[0]);
         stakeToken = IERC20(_addresses[1]);
-        token0 = IERC20(_addresses[2]);
-        token1 = IERC20(_addresses[3]);
-        earnToken = IERC20(_addresses[4]);
-        masterChef = _addresses[5];
-        swapRouter = IUniswapV2Router02(_addresses[6]);
-        liquidityRouter = IUniswapV2Router02(_addresses[7]);
-        WNATIVE = _addresses[8];
+        earnToken = IERC20(_addresses[2]);
+        masterChef = _addresses[3];
+        swapRouter = IUniswapV2Router02(_addresses[4]);
+        liquidityRouter = IUniswapV2Router02(_addresses[5]);
+        WNATIVE = _addresses[6];
+        if (_isLpToken) {
+            token0 = IERC20(IUniswapV2Pair(_addresses[1]).token0());
+            token1 = IERC20(IUniswapV2Pair(_addresses[1]).token1());
+            swapPath[address(earnToken)][address(token0)] = _earnToToken0Path;
+            swapPath[address(earnToken)][address(token1)] = _earnToToken1Path;
+            swapPath[address(token0)][address(earnToken)] = _token0ToEarnPath;
+            swapPath[address(token1)][address(earnToken)] = _token1ToEarnPath;
+        } else {
+            swapPath[address(earnToken)][address(stakeToken)] = _earnToToken0Path;
+            swapPath[address(stakeToken)][address(earnToken)] = _token0ToEarnPath;
+        }
         pid = _pid;
-        swapPath[address(earnToken)][address(token0)] = _earnToToken0Path;
-        swapPath[address(earnToken)][address(token1)] = _earnToToken1Path;
-        swapPath[address(token0)][address(earnToken)] = _token0ToEarnPath;
-        swapPath[address(token1)][address(earnToken)] = _token1ToEarnPath;
         emit Initialize();
     }
 
@@ -210,7 +219,8 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
         }
 
         // harvest earn tokens
-        _farmWithdraw(0);
+        uint256 earnAmountBefore = earnToken.balanceOf(address(this));
+        _farmHarvest();
 
         if (address(earnToken) == WNATIVE) {
             wrapNative();
@@ -220,17 +230,17 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
             tokenToEarn(extraEarnTokens[i]);
         }
 
-        uint256 earnAmount = earnToken.balanceOf(address(this));
-        if (earnAmount == 0) {
-            return 0;
+        uint256 harvestAmount = earnToken.balanceOf(address(this)) - earnAmountBefore;
+
+        if (harvestAmount > 0) {
+            bountyReward = _distributeFees(harvestAmount, _bountyHunter);
         }
+        uint256 earnAmount = earnToken.balanceOf(address(this));
 
-        (earnAmount, bountyReward) = _distributeFees(earnAmount, _bountyHunter);
-
-        // stake token is a single token: Swap earn token for token0
-        if (token0 == token1) {
-            if (token0 != earnToken) {
-                _safeSwap(earnAmount, swapPath[address(earnToken)][address(token0)], address(this));
+        // if no token0, then stake token is a single token: Swap earn token for stake token
+        if (address(token0) == address(0)) {
+            if (stakeToken != earnToken) {
+                _safeSwap(earnAmount, swapPath[address(earnToken)][address(stakeToken)], address(this), false);
             }
             _farm();
             return bountyReward;
@@ -238,10 +248,10 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
 
         // stake token is a LP token: Swap earn token for token0 and token1 and add liquidity
         if (earnToken != token0) {
-            _safeSwap(earnAmount / 2, swapPath[address(earnToken)][address(token0)], address(this));
+            _safeSwap(earnAmount / 2, swapPath[address(earnToken)][address(token0)], address(this), false);
         }
         if (earnToken != token1) {
-            _safeSwap(earnAmount / 2, swapPath[address(earnToken)][address(token1)], address(this));
+            _safeSwap(earnAmount / 2, swapPath[address(earnToken)][address(token1)], address(this), false);
         }
         uint256 token0Amt = token0.balanceOf(address(this));
         uint256 token1Amt = token1.balanceOf(address(this));
@@ -274,20 +284,21 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice unpauses the strategy in case of emergency
+     * @notice unpauses the strategy
      * @dev can only be called by the operator
      */
     function unpause() external virtual onlyOperator {
+        require(!emergencyWithdrawn, 'unpause: CANNOT_UNPAUSE_AFTER_EMERGENCY_WITHDRAW');
         _unpause();
         emit Unpause();
     }
 
     /**
-     * @notice updates the router used for swapping earn tokens to stake tokens
+     * @notice enables or disables the swap router used for swapping earn tokens to stake tokens
      * @dev can only be called by YieldWolf contract which already performs the required validations and logging
      */
-    function setSwapRouter(address _swapRouter) external virtual onlyOwner {
-        swapRouter = IUniswapV2Router02(_swapRouter);
+    function setSwapRouterEnabled(bool _enabled) external virtual onlyOwner {
+        swapRouterEnabled = _enabled;
     }
 
     /**
@@ -315,9 +326,8 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
      * @dev it uses the predefined path if it exists or defaults to use WNATIVE
      */
     function tokenToEarn(address _token) public virtual whenNotPaused {
-        require(_token != address(earnToken), 'tokenToEarn: NOT_VALID');
         uint256 amount = IERC20(_token).balanceOf(address(this));
-        if (amount > 0) {
+        if (amount > 0 && _token != address(earnToken) && _token != address(stakeToken)) {
             address[] memory path = swapPath[_token][address(earnToken)];
             if (path.length == 0) {
                 if (_token == WNATIVE) {
@@ -331,7 +341,7 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
                     path[2] = address(earnToken);
                 }
             }
-            _safeSwap(amount, path, address(this));
+            _safeSwap(amount, path, address(this), true);
             emit TokenToEarn(_token);
         }
     }
@@ -352,39 +362,15 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice returns the total value locked in the network currency
-     */
-    function totalValueLockedNative() external view virtual returns (uint256) {
-        uint256 totalStake = totalStakeTokens();
-
-        // single token
-        if (token0 == token1) {
-            (uint256 val, ) = valueNative(address(token0), totalStake);
-            return val;
-        }
-
-        // lp token
-        IUniswapV2Factory factory = IUniswapV2Factory(liquidityRouter.factory());
-        IUniswapV2Pair lpPair = IUniswapV2Pair(factory.getPair(address(token0), address(token1)));
-        (uint256 res0, uint256 res1, ) = lpPair.getReserves();
-        (uint256 val0, uint256 native0) = valueNative(lpPair.token0(), (totalStake * res0) / lpPair.totalSupply());
-        (uint256 val1, uint256 native1) = valueNative(lpPair.token1(), (totalStake * res1) / lpPair.totalSupply());
-        if (native0 > native1) {
-            return val0 * 2;
-        }
-        return val1 * 2;
-    }
-
-    /**
      * @notice invokes the emergency withdraw function in the underlying farm
      * @dev can only be called by the operator. Only in case of emergency.
      */
     function emergencyWithdraw() external virtual onlyOperator {
         if (!paused()) {
             _pause();
-            emit Pause();
         }
         _farmEmergencyWithdraw();
+        emergencyWithdrawn = true;
         emit EmergencyWithdraw();
     }
 
@@ -393,7 +379,11 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
         _farmDeposit(depositAmount);
     }
 
-    function _distributeFees(uint256 _amount, address _bountyHunter) internal virtual returns (uint256, uint256) {
+    function _farmHarvest() internal virtual {
+        _farmDeposit(0);
+    }
+
+    function _distributeFees(uint256 _amount, address _bountyHunter) internal virtual returns (uint256) {
         uint256 bountyReward = 0;
         uint256 bountyRewardPct = _bountyHunter == address(0) ? 0 : yieldWolf.performanceFeeBountyPct();
         uint256 performanceFee = (_amount * yieldWolf.performanceFee()) / 10000;
@@ -405,42 +395,35 @@ abstract contract AutoCompoundStrategy is Ownable, ReentrancyGuard, Pausable {
         if (bountyReward > 0) {
             earnToken.safeTransfer(_bountyHunter, bountyReward);
         }
-        _amount = _amount - performanceFee - bountyReward;
-        return (_amount, bountyReward);
+        return bountyReward;
     }
 
     function _safeSwap(
         uint256 _amountIn,
         address[] memory _path,
-        address _to
+        address _to,
+        bool _ignoreErrors
     ) internal virtual {
-        IERC20(_path[0]).safeIncreaseAllowance(address(swapRouter), _amountIn);
-        swapRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens(
-            _amountIn,
-            0,
-            _path,
-            _to,
-            block.timestamp + 200
-        );
-    }
-
-    /**
-     * @notice returns the WNATIVE value of a given amount of tokens
-     * @dev it gets the value from the token-WNATIVE pair
-     * @param _token address of the token
-     * @param _amount amount of tokens
-     */
-    function valueNative(address _token, uint256 _amount) internal view returns (uint256, uint256) {
-        if (_token == WNATIVE) {
-            return (_amount, type(uint256).max);
+        IUniswapV2Router02 router = swapRouterEnabled ? swapRouter : liquidityRouter;
+        IERC20(_path[0]).safeIncreaseAllowance(address(router), _amountIn);
+        if (_ignoreErrors) {
+            try
+                router.swapExactTokensForTokensSupportingFeeOnTransferTokens(
+                    _amountIn,
+                    0,
+                    _path,
+                    _to,
+                    block.timestamp + 200
+                )
+            {} catch {}
+        } else {
+            router.swapExactTokensForTokensSupportingFeeOnTransferTokens(
+                _amountIn,
+                0,
+                _path,
+                _to,
+                block.timestamp + 200
+            );
         }
-        IUniswapV2Factory factory = IUniswapV2Factory(swapRouter.factory());
-        IUniswapV2Pair pair = IUniswapV2Pair(factory.getPair(WNATIVE, _token));
-        if (address(pair) == address(0)) {
-            return (0, 0);
-        }
-        (uint256 res0, uint256 res1, ) = pair.getReserves();
-        (uint256 resNative, uint256 resToken) = pair.token0() == WNATIVE ? (res0, res1) : (res1, res0);
-        return ((_amount * resNative) / resToken, resNative);
     }
 }

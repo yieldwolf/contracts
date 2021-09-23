@@ -14,6 +14,8 @@ interface IFarm {
         address _to
     ) external;
 
+    function harvest(uint256 _pid, address _to) external;
+
     function withdrawAndHarvest(
         uint256 _pid,
         uint256 _amount,
@@ -41,6 +43,10 @@ contract ACMiniChef is AutoCompoundStrategy {
 
     function _farmWithdraw(uint256 amount) internal override {
         IFarm(masterChef).withdrawAndHarvest(pid, amount, address(this));
+    }
+
+    function _farmHarvest() internal override {
+        IFarm(masterChef).harvest(pid, address(this));
     }
 
     function _farmEmergencyWithdraw() internal override {

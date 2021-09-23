@@ -3,6 +3,8 @@
 pragma solidity 0.8.4;
 
 interface IYieldWolfAction {
+    function isAction() external view returns (bool);
+
     function execute(
         address yieldWolf,
         address strategy,
