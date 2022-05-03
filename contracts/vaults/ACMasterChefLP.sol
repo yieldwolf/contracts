@@ -57,7 +57,7 @@ contract ACMasterChefLP is AutoCompoundVault {
             _safeSwap(halfEarnAmount, address(earnToken), address(token0));
         }
         if (earnToken != token1) {
-            _safeSwap(halfEarnAmount, address(earnToken), address(token1));
+            _safeSwap(_earnAmount - halfEarnAmount, address(earnToken), address(token1));
         }
         uint256 token0Amt = token0.balanceOf(address(this));
         uint256 token1Amt = token1.balanceOf(address(this));
