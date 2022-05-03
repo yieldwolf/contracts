@@ -12,8 +12,9 @@ pragma solidity 0.8.9;
 import '@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol';
 import '@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol';
 import './interfaces/IRouteResolver.sol';
+import './interfaces/IRouteOracle.sol';
 
-contract RouteOracle is OwnableUpgradeable {
+contract RouteOracle is OwnableUpgradeable, IRouteOracle {
     struct Route {
         IRouteResolver resolver;
         bytes data;
