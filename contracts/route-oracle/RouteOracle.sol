@@ -20,6 +20,7 @@ contract RouteOracle is OwnableUpgradeable {
         address nextToken;
     }
 
+    event SetRoute(address tokenFrom, address tokenTo);
     event SetOperator(address addr, bool isOperator);
 
     mapping(address => mapping(address => Route)) public routes;
@@ -49,6 +50,7 @@ contract RouteOracle is OwnableUpgradeable {
             address routeTokenTo = route.nextToken != address(0) ? route.nextToken : _tokenTo;
             route.resolver.validateData(lastTokenFrom, routeTokenTo, route.data);
             routes[lastTokenFrom][_tokenTo] = route;
+            emit SetRoute(lastTokenFrom, _tokenTo);
             lastTokenFrom = route.nextToken;
         }
     }
