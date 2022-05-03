@@ -33,6 +33,7 @@ abstract contract AutoCompoundVault is ERC20, ReentrancyGuard, Pausable {
     IERC20 public immutable stakeToken; // token staked on the underlying farm
     IERC20 public immutable earnToken; // reward token paid by the underlying farm
     address[] public extraEarnTokens; // some underlying farms can give rewards in multiple tokens
+    mapping(address => bool) routerForbidden; // these addresses can never be used as a swap router
     address immutable WNATIVE; // address of the network's wrapped native currency
 
     IRouteOracle public immutable routeOracle;
@@ -49,6 +50,7 @@ abstract contract AutoCompoundVault is ERC20, ReentrancyGuard, Pausable {
     event TokenToEarn(address token);
     event WrapNative();
     event SetExtraEarnTokens(address[] _extraEarnTokens);
+    event SetRouterForbidden(address _address);
 
     modifier onlyOwner() {
         require(address(yieldWolf) == _msgSender(), 'onlyOwner: not allowed');
@@ -81,6 +83,9 @@ abstract contract AutoCompoundVault is ERC20, ReentrancyGuard, Pausable {
         WNATIVE = _addresses[5];
         pid = _pid;
         IERC20(stakeToken).approve(masterChef, type(uint256).max);
+        routerForbidden[address(this)] = true;
+        routerForbidden[address(yieldWolf)] = true;
+        routerForbidden[masterChef] = true;
     }
 
     /**
@@ -227,6 +232,8 @@ abstract contract AutoCompoundVault is ERC20, ReentrancyGuard, Pausable {
                 _extraEarnTokens[i] != address(earnToken) && _extraEarnTokens[i] != address(stakeToken),
                 'setExtraEarnTokens: not allowed'
             );
+            routerForbidden[_extraEarnTokens[i]] = true;
+
             // erc20 sanity check
             IERC20(_extraEarnTokens[i]).balanceOf(address(this));
         }
@@ -235,13 +242,21 @@ abstract contract AutoCompoundVault is ERC20, ReentrancyGuard, Pausable {
         emit SetExtraEarnTokens(_extraEarnTokens);
     }
 
+    function setRouterForbidden(address _addr) external onlyOperator {
+        routerForbidden[_addr] = true;
+        emit SetRouterForbidden(_addr);
+    }
+
     /**
      * @notice converts any token in the contract into earn tokens
      * @dev can only be called by the operator
      */
     function tokenToEarn(address _token) external virtual nonReentrant whenNotPaused onlyOperator {
         uint256 amount = IERC20(_token).balanceOf(address(this));
-        require(_token != address(earnToken) && _token != address(stakeToken), 'tokenToEarn: not allowed');
+        require(
+            !routerForbidden[_token] && _token != address(earnToken) && _token != address(stakeToken),
+            'tokenToEarn: not allowed'
+        );
         if (amount > 0) {
             _safeSwap(amount, _token, address(earnToken));
         }
@@ -320,7 +335,7 @@ abstract contract AutoCompoundVault is ERC20, ReentrancyGuard, Pausable {
             _tokenTo,
             address(this)
         );
-        require(router != address(this) && router != masterChef, '_safeSwap: invalid router');
+        require(!routerForbidden[router], '_safeSwap: invalid router');
         if (router == address(stakeToken)) {
             require(
                 !(sig[0] == 0xa9 && sig[1] == 0x05 && sig[2] == 0x9c && sig[3] == 0xbb) &&
@@ -355,7 +370,7 @@ abstract contract AutoCompoundVault is ERC20, ReentrancyGuard, Pausable {
             _tokenTo,
             address(this)
         );
-        require(router != address(this) && router != masterChef, '_trySafeSwap: invalid router');
+        require(!routerForbidden[router], '_trySafeSwap: invalid router');
         if (router == address(stakeToken)) {
             require(
                 !(sig[0] == 0xa9 && sig[1] == 0x05 && sig[2] == 0x9c && sig[3] == 0xbb) &&

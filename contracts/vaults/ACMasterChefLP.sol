@@ -48,6 +48,7 @@ contract ACMasterChefLP is AutoCompoundVault {
         liquidityRouter = _liquidityRouter;
         token0.approve(address(liquidityRouter), type(uint256).max);
         token1.approve(address(liquidityRouter), type(uint256).max);
+        routerForbidden[address(_addresses[1])] = true;
     }
 
     function _earnToStake(uint256 _earnAmount) internal override {
