@@ -122,7 +122,8 @@ abstract contract AutoCompoundVault is ERC20, ReentrancyGuard, Pausable {
     function withdraw(address _user, uint256 _withdrawAmount) external virtual onlyOwner nonReentrant {
         require(_withdrawAmount > 0, 'withdraw: cannot be zero');
         uint256 totalStakedOnFarm = _totalStaked();
-        uint256 totalStake = totalStakedOnFarm + stakeToken.balanceOf(address(this));
+        uint256 stakeAmountBefore = stakeToken.balanceOf(address(this));
+        uint256 totalStake = totalStakedOnFarm + stakeAmountBefore;
         uint256 sharesTotal = totalSupply();
         uint256 userBalance = balanceOf(_user);
 
@@ -142,6 +143,10 @@ abstract contract AutoCompoundVault is ERC20, ReentrancyGuard, Pausable {
 
         if (totalStakedOnFarm > 0) {
             _farmWithdraw(_withdrawAmount);
+            uint256 totalWithdrawn = stakeToken.balanceOf(address(this)) - stakeAmountBefore;
+            if (_withdrawAmount > totalWithdrawn) {
+                _withdrawAmount = totalWithdrawn;
+            }
         }
 
         uint256 stakeBalance = stakeToken.balanceOf(address(this));
